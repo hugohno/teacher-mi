@@ -1,17 +1,111 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Label } from "@/components/ui/label"
-import { Users, Star, BookOpen, Phone, MapPin, Instagram } from "lucide-react"
+import { Users, Star, BookOpen, Phone, MapPin, Instagram, Settings, UserPlus } from "lucide-react"
 import Link from "next/link"
+import { supabase } from "@/lib/auth"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false)
+  const router = useRouter()
+  const [activeTab, setActiveTab] = useState("parent")
+
+  // Atualizar a função handleEmailLogin para usar o novo sistema de admin
+  const handleEmailLogin = async (userType: string) => {
+    if (!email || !password) {
+      alert("Por favor, preencha email e senha")
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      // Para admin, verificar na tabela admins primeiro
+      if (userType === "admin") {
+        const { data: adminData } = await supabase
+          .from("admins")
+          .select("*")
+          .eq("email", email)
+          .eq("active", true)
+          .single()
+
+        if (!adminData) {
+          alert("Acesso de administrador não autorizado")
+          setIsLoading(false)
+          return
+        }
+
+        // Se o admin não tem senha configurada, permitir login temporário
+        if (!adminData.password_hash) {
+          console.log("Admin sem senha configurada - permitindo login temporário")
+        }
+
+        // TODO: Implementar verificação de senha hash quando necessário
+        // Por enquanto, continuar com o login normal do Supabase Auth
+      }
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+
+      if (error) {
+        alert("Erro no login: " + error.message)
+        return
+      }
+
+      if (data.user) {
+        // Redirecionar baseado no tipo de usuário
+        switch (userType) {
+          case "admin":
+            router.push("/admin-dashboard")
+            break
+          case "student":
+            router.push("/student-dashboard")
+            break
+          case "parent":
+            router.push("/parent-dashboard")
+            break
+          default:
+            router.push("/parent-dashboard")
+        }
+      }
+    } catch (error) {
+      console.error("Erro no login:", error)
+      alert("Erro inesperado no login")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleGoogleLogin = async () => {
+    setIsGoogleLoading(true)
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      })
+
+      if (error) {
+        alert("Erro no login com Google: " + error.message)
+      }
+    } catch (error) {
+      console.error("Erro no login com Google:", error)
+      alert("Erro inesperado no login com Google")
+    } finally {
+      setIsGoogleLoading(false)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-teal-50 via-blue-50 to-indigo-50 flex items-center justify-center p-4">
@@ -35,8 +129,8 @@ export default function LoginPage() {
             <CardDescription>Acesse sua área personalizada</CardDescription>
           </CardHeader>
           <CardContent>
-            <Tabs defaultValue="parent" className="w-full">
-              <TabsList className="grid w-full grid-cols-2 mb-6">
+            <Tabs defaultValue="parent" className="w-full" onValueChange={setActiveTab}>
+              <TabsList className="grid w-full grid-cols-3 mb-6">
                 <TabsTrigger value="parent" className="flex items-center gap-2">
                   <Users className="w-4 h-4" />
                   Pais
@@ -44,6 +138,10 @@ export default function LoginPage() {
                 <TabsTrigger value="student" className="flex items-center gap-2">
                   <Star className="w-4 h-4" />
                   Alunos
+                </TabsTrigger>
+                <TabsTrigger value="admin" className="flex items-center gap-2">
+                  <Settings className="w-4 h-4" />
+                  Admin
                 </TabsTrigger>
               </TabsList>
 
@@ -70,11 +168,13 @@ export default function LoginPage() {
                     className="border-2 border-teal-200 focus:border-teal-400"
                   />
                 </div>
-                <Link href="/parent-dashboard">
-                  <Button className="w-full bg-gradient-to-r from-teal-600 to-blue-600 hover:from-teal-700 hover:to-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition-all duration-200">
-                    Entrar como Responsável
-                  </Button>
-                </Link>
+                <Button
+                  className="w-full bg-gradient-to-r from-teal-600 to-blue-600 hover:from-teal-700 hover:to-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition-all duration-200"
+                  onClick={() => handleEmailLogin("parent")}
+                  disabled={isLoading}
+                >
+                  {isLoading ? "Entrando..." : "Entrar como Responsável"}
+                </Button>
               </TabsContent>
 
               <TabsContent value="student" className="space-y-4">
@@ -84,6 +184,8 @@ export default function LoginPage() {
                     id="student-email"
                     type="email"
                     placeholder="aluno@email.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
                     className="border-2 border-purple-200 focus:border-purple-400"
                   />
                 </div>
@@ -93,19 +195,65 @@ export default function LoginPage() {
                     id="student-password"
                     type="password"
                     placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
                     className="border-2 border-purple-200 focus:border-purple-400"
                   />
                 </div>
-                <Link href="/student-dashboard">
-                  <Button className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold py-2 px-4 rounded-lg transition-all duration-200">
-                    Entrar como Aluno
-                  </Button>
-                </Link>
+                <Button
+                  className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold py-2 px-4 rounded-lg transition-all duration-200"
+                  onClick={() => handleEmailLogin("student")}
+                  disabled={isLoading}
+                >
+                  {isLoading ? "Entrando..." : "Entrar como Aluno"}
+                </Button>
+              </TabsContent>
+
+              <TabsContent value="admin" className="space-y-4">
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-sm text-amber-800">
+                    <strong>Acesso Restrito:</strong> Apenas administradores autorizados podem acessar esta área.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="admin-email">E-mail Administrativo</Label>
+                  <Input
+                    id="admin-email"
+                    type="email"
+                    placeholder="michelle@psicopedagoga.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="border-2 border-indigo-200 focus:border-indigo-400"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="admin-password">Senha</Label>
+                  <Input
+                    id="admin-password"
+                    type="password"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="border-2 border-indigo-200 focus:border-indigo-400"
+                  />
+                </div>
+                <Button
+                  className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-semibold py-2 px-4 rounded-lg transition-all duration-200"
+                  onClick={() => handleEmailLogin("admin")}
+                  disabled={isLoading}
+                >
+                  {isLoading ? "Entrando..." : "Entrar como Administrador"}
+                </Button>
               </TabsContent>
             </Tabs>
 
             <div className="mt-6 space-y-3">
-              <Button variant="outline" className="w-full border-2 border-gray-200 hover:bg-gray-50 bg-transparent">
+              <Button
+                variant="outline"
+                className="w-full border-2 border-gray-200 hover:bg-gray-50 bg-transparent"
+                onClick={handleGoogleLogin}
+                disabled={isGoogleLoading}
+              >
                 <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
                   <path
                     fill="currentColor"
@@ -124,10 +272,21 @@ export default function LoginPage() {
                     d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
                   />
                 </svg>
-                Entrar com Google
+                {isGoogleLoading ? "Conectando..." : "Entrar com Google"}
               </Button>
 
-              <div className="text-center">
+              <div className="text-center space-y-2">
+                {activeTab !== "admin" && (
+                  <Link href="/register">
+                    <Button
+                      variant="outline"
+                      className="w-full border-2 border-green-200 text-green-700 hover:bg-green-50 bg-transparent"
+                    >
+                      <UserPlus className="w-4 h-4 mr-2" />
+                      Criar Nova Conta
+                    </Button>
+                  </Link>
+                )}
                 <Button variant="link" className="text-sm text-gray-600 hover:text-gray-800">
                   Esqueci minha senha
                 </Button>
